@@ -1,3 +1,9 @@
+# user files
+test-rmd.Rmd
+test-rmd.html
+/data
+.DS_Store
+
 # History files
 .Rhistory
 .Rapp.history

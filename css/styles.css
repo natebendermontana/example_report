@@ -1,0 +1,29 @@
+/* CSS for infographic-style numbers */
+.infographic-number {
+  color: #004d65;
+  font-weight: bold;
+  font-size: 16px;
+  font-family: "Helvetica Neue", Arial, sans-serif;
+}
+
+.infographic-sub-number {
+  color: #ef3606;
+  font-weight: bold;
+  font-size: 14px;
+  font-family: "Helvetica Neue", Arial, sans-serif;
+}
+
+.header-text-highlight {
+  color: #004d65;
+  font-weight: bold;
+  font-size: 16px;
+  font-family: "Helvetica Neue", Arial, sans-serif;
+}
+
+<style>
+.fa-icon {
+  color: #004d65;
+  height: 2em;
+  margin-right: 10px;
+}
+</style>
