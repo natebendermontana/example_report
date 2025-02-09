@@ -81,7 +81,7 @@ city_sample <- cities %>%
   distinct() %>%
   sample_n(length(unique(all_fake_ids)), replace = TRUE)
 
-investment_levels <- c("Executive", "Management", "Contributor")
+seniority_levels <- c("Executive", "Management", "Contributor")
 org_statuses <- c("Employee", "Intern")
 org_status_probs <- c(0.95, 0.05)
 org_groups <- c("Marketing", "Accounting", "Sales", "Finance", "Data", "Engineering")
@@ -103,7 +103,7 @@ fake_attributes_lookup <- tibble(
   random_name = randomNames(n = length(unique(all_fake_ids)), name.order = "last.first"),
   first_name = sub(".*,\\s*", "", random_name),
   last_name = sub(",.*", "", random_name),
-  investment_level = sample(investment_levels, length(unique(all_fake_ids)), replace = TRUE),
+  seniority_level = sample(seniority_levels, length(unique(all_fake_ids)), replace = TRUE),
   org_status = sample(org_statuses, length(unique(all_fake_ids)), replace = TRUE, prob = org_status_probs),
   org_group = sample(org_groups, length(unique(all_fake_ids)), replace = TRUE, prob = org_groups_probs)
 ) %>%
@@ -164,7 +164,7 @@ df_fake_placeholders <- fake_attributes_lookup %>%
 # Combine activity records & placeholder records
 df_deidentified <- bind_rows(df_fake_activities, df_fake_placeholders) %>%
   left_join(fake_attributes_lookup, by = "salesforce_id") %>%
-  select(salesforce_id, first_name, last_name, city, state_name, county_fips, org_group, org_status, investment_level, is_activity, everything())
+  select(salesforce_id, first_name, last_name, city, state_name, county_fips, org_group, org_status, seniority_level, is_activity, everything())
 
 ```
 
@@ -226,13 +226,13 @@ max_activities <- summary_stats %>% pull(max_activities) %>% round(1)
 <hr style="border: 1px solid #004d65;">
 
 <span class="header-text-highlight">**Intro**</span>
-  
+
 After recently finishing a few confidential reports for clients interested in understanding more about their data and programs, I decided to make up some data and bring together some of the more interesting analysis and visualization methods from that work into a report that I could share publicly to demonstrate my skills.
 
 For this demonstration, I pretend the client ("Acme Corp") is an national organization and the use case is that they're interested in analyzing how their employees are engaging with the company volunteer program. There are a number of different ways that employees can use the company-sponsored volunteer hours, and the company would like to understand how the program is being utilized. 
 
 <span class="header-text-highlight">**Goal**</span> 
-  
+
 This report demonstrates my abilities across the following:
 
 - Tailoring my analysis to a variety of angles, e.g. temporal, spatial, and aggregating data at different levels. 
@@ -650,7 +650,7 @@ ggplot(results_df, aes(x = permuted_diffs)) +
 
 ```
 
-## Which Individuals Showed Up?
+## Individual Volunteers
 
 For a true across-the-business leaderboard, let's look at the overall top 20 by raw number of volunteer activities: 
 
@@ -713,7 +713,89 @@ final_plot
 
 ```
 
-## Which Departments Showed Up? 
+And look at what types of volunteering are most popular for each department. 
+
+```{r}
+library(ggradar)
+library(patchwork)  # For arranging plots
+
+activity_labels <- c(
+  "community_cleanup" = "Community Cleanup",
+  "mentorship_program" = "Mentorship Program",
+  "nonprofit_fundraising" = "Nonprofit Fundraising",
+  "stem_workshops" = "STEM Workshops",
+  "food_bank_support" = "Food Bank Support",
+  "disaster_relief" = "Disaster Relief",
+  "animal_shelter" = "Animal Shelter",
+  "environmental_advocacy" = "Environmental Advocacy"
+)
+
+global_max <- df_deidentified %>%
+  filter(is_activity == TRUE) %>%
+  count(activity_type) %>%
+  summarise(max_engagement = max(n, na.rm = TRUE)) %>%
+  pull(max_engagement)
+
+create_radar_chart <- function(department_name, data) {
+  df_filtered <- data %>%
+    filter(is_activity == TRUE, org_group == department_name) %>%
+    group_by(activity_type) %>%
+    summarise(engagement_count = n(), .groups = 'drop') %>%
+    mutate(activity_type = recode(activity_type, !!!activity_labels)) 
+
+  # Check if department has engagement data
+  if (nrow(df_filtered) == 0) {
+    print(paste("No engagement data for", department_name))
+    return(NULL)  # Skip if no data
+  }
+
+  # Normalize engagement counts using the **global max across all departments**
+  df_normalized <- df_filtered %>%
+    mutate(engagement_count = engagement_count / global_max) %>%
+    pivot_wider(names_from = activity_type, values_from = engagement_count, values_fill = 0)
+
+  # Add an identifier column for ggradar
+  df_radar <- df_normalized %>%
+    mutate(org_group = department_name) %>%
+    select(org_group, everything())
+
+  # Assign department color
+  color <- deidentified_color_pal[department_name]
+
+  # Create radar chart
+  ggradar(df_radar, 
+          grid.min = 0, grid.mid = 0.5, grid.max = 1, 
+          values.radar = c("0", "0.5", "1"),
+          axis.labels = colnames(df_radar)[-1],
+          plot.title = department_name,
+          group.colours = color,
+          axis.label.size = 5,
+          group.point.size = 3,
+          fill = T,
+          fill.alpha = .5)+
+        theme(plot.margin = margin(10, 20, 10, 20))  
+}
+
+# Example usage (replace "Marketing" with the desired department)
+radar_marketing <- create_radar_chart("Marketing", df_deidentified)
+radar_data <- create_radar_chart("Data", df_deidentified)
+radar_sales <- create_radar_chart("Sales", df_deidentified)
+radar_accounting <- create_radar_chart("Accounting", df_deidentified)
+
+
+```
+
+```{r}
+radar_data + radar_marketing
+
+```
+
+```{r}
+radar_sales + radar_accounting
+```
+
+
+## Departmental Volunteering 
 Another way to look at the activity across departments is by breaking down the percentage of employees in each department who either participated in at least one activity versus those who did not participate at all.
 
 ```{r, echo=F}
@@ -852,21 +934,21 @@ I was also curious if the seniority was associated with different levels of over
 
 ```{r, echo=F}
 for_plot <- df_deidentified %>%
-  group_by(investment_level, salesforce_id) %>%
+  group_by(seniority_level, salesforce_id) %>%
   summarize(engaged = any(is_activity), .groups = "drop") %>%
-  group_by(investment_level) %>%
+  group_by(seniority_level) %>%
   summarize(
     engaged = sum(engaged),
     didnotengage = n() - sum(engaged),
     .groups = "drop"
   ) %>%
   pivot_longer(cols = c(engaged, didnotengage), names_to = "Activity_Status", values_to = "Count") %>%
-  group_by(investment_level) %>%
+  group_by(seniority_level) %>%
   mutate(Percentage = Count / sum(Count) * 100) %>%
   ungroup()%>%
   mutate(
-    investment_level = fct_reorder(
-      investment_level,
+    seniority_level = fct_reorder(
+      seniority_level,
       Percentage * (Activity_Status == "engaged"),
       .fun = sum,
       .desc = TRUE
@@ -883,7 +965,7 @@ for_plot_overall <- df_deidentified %>%
   ) %>%
   pivot_longer(cols = c(engaged, didnotengage), names_to = "Activity_Status", values_to = "Count") %>%
   mutate(
-    investment_level = "Overall",
+    seniority_level = "Overall",
     Percentage = Count / sum(Count) * 100
   )
 
@@ -891,16 +973,16 @@ for_plot <- bind_rows(for_plot, for_plot_overall) %>%
   ungroup()
 
 overall_plot_data <- for_plot %>%
-  filter(investment_level == "Overall")
+  filter(seniority_level == "Overall")
 
 for_plot <- for_plot %>%
-  filter(investment_level != "Overall") %>% 
-  mutate(    investment_level = factor(
-    investment_level,
+  filter(seniority_level != "Overall") %>% 
+  mutate(    seniority_level = factor(
+    seniority_level,
     levels = c("Executive", "Management", "Contributor")
   ))
 
-main_plot <- ggplot(for_plot, aes(x = investment_level, y = Percentage, 
+main_plot <- ggplot(for_plot, aes(x = seniority_level, y = Percentage, 
                                   fill = Activity_Status)) +
   geom_bar(stat = "identity", alpha = .9) +
   scale_fill_manual(
@@ -923,7 +1005,7 @@ main_plot <- ggplot(for_plot, aes(x = investment_level, y = Percentage,
     plot.subtitle = element_markdown(size = 16)
   )
 
-overall_plot <- ggplot(overall_plot_data, aes(x = investment_level, y = Percentage, fill = Activity_Status)) +
+overall_plot <- ggplot(overall_plot_data, aes(x = seniority_level, y = Percentage, fill = Activity_Status)) +
   geom_bar(stat = "identity", alpha = .9) +
   scale_fill_manual(
     values = c("engaged" = "#004d65", "didnotengage" = "#e25b5b"),
@@ -957,7 +1039,7 @@ You can explore the specific people within these non-participating employees in 
 
 ```{r, echo=F,  fig.align="center", out.width="100%"}
 for_plot <- df_deidentified %>%
-  mutate(investment_level = factor(investment_level, levels = c("Executive", "Management", "Contributor"))) %>% 
+  mutate(seniority_level = factor(seniority_level, levels = c("Executive", "Management", "Contributor"))) %>% 
   filter(!org_status=="Intern") %>% 
   group_by(salesforce_id) %>% 
   # the "all" is crucial - it asks if all rows for a given id are FALSE and therefore shows only the employees who did not engage in any way
@@ -965,12 +1047,12 @@ for_plot <- df_deidentified %>%
   summarize(salesforce_id = first(salesforce_id),
             first_name = first(first_name),
             last_name = first(last_name), 
-            investment_level = first(investment_level),
+            seniority_level = first(seniority_level),
             org_group = first(org_group)) %>%
-  group_by(org_group, investment_level) %>%
+  group_by(org_group, seniority_level) %>%
   summarize(count = n(), .groups = "drop")
 
-ggplot(for_plot, aes(x = reorder(org_group, count, FUN="sum", decreasing=T), y = count, fill = investment_level)) +
+ggplot(for_plot, aes(x = reorder(org_group, count, FUN="sum", decreasing=T), y = count, fill = seniority_level)) +
   geom_bar(stat = "identity", position = "stack") +
   labs(
     x = "",
@@ -1347,7 +1429,7 @@ reference_table <- overall_avg_table %>%
   ) %>%
   data_color(
     columns = c(Value),
-    colors = function(x) redgreen_gradient((x - overall_per_quarter_avg) / overall_per_quarter_avg)
+    colors = function(x) de_id_redgreen_gradient((x - overall_per_quarter_avg) / overall_per_quarter_avg)
   ) %>%
   fmt_number(
     columns = c(Value),
@@ -1399,13 +1481,13 @@ team_activity_plot <- function(df, team = NULL, member_status = NULL, invest_col
   
   # Summarize data for plotting
   top_engagers_all <- filtered_data %>%
-    group_by(salesforce_id, first_name, last_name, investment_level) %>%
+    group_by(salesforce_id, first_name, last_name, seniority_level) %>%
     summarize(engaged = sum(is_activity), .groups = "drop") %>%
     ungroup() %>%
     arrange(desc(engaged)) %>%
     mutate(
       full_name = paste(first_name, last_name),
-      axis_label_color = as.character(investment_level)
+      axis_label_color = as.character(seniority_level)
     )
   
   # Adjust order of full_name and colors for plotting
@@ -1418,7 +1500,7 @@ team_activity_plot <- function(df, team = NULL, member_status = NULL, invest_col
     pull(color)
   
   # Create the plot
-  ggplot(top_engagers_all, aes(x = full_name, y = engaged, fill = investment_level)) +
+  ggplot(top_engagers_all, aes(x = full_name, y = engaged, fill = seniority_level)) +
     geom_bar(stat = "identity", show.legend = TRUE, width = 0.9) +
     coord_flip() +  
     scale_y_continuous(
@@ -1505,7 +1587,7 @@ team_activity_plot(
 ```
 
 ## Data
-```{r, fig.height=3, fig.width=8}
+```{r, fig.height=12, fig.width=8}
 team_activity_plot(
   df = df_deidentified,
   team = "Data",
@@ -1539,27 +1621,25 @@ This is an interactive table of the data that underlies everything in this repor
 
 ```{r}
 for_table <- df_deidentified %>% 
-  select(-salesforce_id) %>% 
+  select(-salesforce_id, -volunteer_flag) %>% 
   mutate(org_status = as.factor(org_status),
          org_group = as.factor(org_group),
          activity_type = as.factor(activity_type)) %>% 
-  select(first_name, last_name, org_group, org_status, investment_level, is_activity, activity_type, everything())
-
+  select(first_name, last_name, org_group, org_status, seniority_level, city, state_name, county_fips, is_activity, activity_type, activity_date, activity_desc)
 
 pretty_colnames <- c(
-  "salesforce_id" = "Salesforce ID",
   "first_name" = "First Name",
   "last_name" = "Last Name",
+  "org_group" = "Organization Group",
+  "org_status" = "Organization Status",
+  "seniority_level" = "Seniority Level",
   "city" = "City",
   "state_name" = "State",
   "county_fips" = "County FIPS",
-  "org_group" = "Organization Group",
-  "org_status" = "Organization Status",
-  "investment_level" = "Investment Level",
   "is_activity" = "Activity (T/F)",
   "activity_type" = "Activity Type",
-  "activity_desc" = "Activity Description",
-  "activity_date" = "Activity Date"
+  "activity_date" = "Activity Date",
+  "activity_desc" = "Activity Description"
 )
 
 datatable(
