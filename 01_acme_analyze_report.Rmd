@@ -1,5 +1,5 @@
 ---
-title: "2024 Acme Corp Volunteer Program Analysis"
+title: "Acme Corp Volunteer Program Analysis"
 author: Nate Bender
 date: "`r Sys.Date()`"
 output:
@@ -8,6 +8,8 @@ output:
     css: css/styles.css
     toc: true
     toc_float: true
+    self_contained: false
+
 ---
 
 <hr style="border: 1px solid #004d65;">
@@ -46,6 +48,7 @@ library(tidytext)
 library(ggrepel)
 library(purrr)
 library(DT)
+library(ggradar)
 library(randomNames)
 library(stringi)
 library(dplyr)
@@ -169,7 +172,7 @@ df_deidentified <- bind_rows(df_fake_activities, df_fake_placeholders) %>%
 ```
 
 ```{r}
-# Total US Alliance
+# Total US
 total_employees <- df_deidentified %>%
   summarize(unique_ids = n_distinct(salesforce_id)) %>% 
   pull(unique_ids)
@@ -297,11 +300,35 @@ data_sources %>%
 ```
 
 <hr style="border: 1px solid #004d65;">
-# Overall activity
+# Overall Activity
 
 Let's start broadly with exploring the amount of volunteer activity — I'll just shorten that to "activity" or "activities" from here on out — with Acme Corp regardless of department. There are <span class="infographic-number">**`r total_employees`**</span> total employees. Of those, <span class="infographic-number">**`r total_employees_oneormore`**</span> participated in at least one Acme Corp activity at some point during the year, which together accounts for a total of <span class="infographic-number">**`r total_activities`**</span> unique activities. On average, employees participated in <span class="infographic-number">**`r mean_activities`**</span> activities across the two years in the data, and the most engaged volunteer in the company participated in <span class="infographic-number">**`r max_activities`**</span> activities. 
 
 However, <span class="infographic-number">**`r total_employees_noengage`**</span> employees (<span class="infographic-sub-number">`r round(total_employees_noengage/total_employees,2)*100` percent!</span>) did not volunteer in any way. 
+
+```{r, fig.align="center", out.width="100%", fig.height=5, fig.width=8}
+for_plot <- df_deidentified %>%
+  group_by(salesforce_id, first_name, last_name) %>% 
+  summarize(
+    total_activities = sum(is_activity, na.rm = TRUE), # Count activities (TRUE as 1)
+    .groups = "drop"
+  )
+
+ggplot(for_plot, aes(x = total_activities)) +
+  geom_histogram(binwidth = 1, fill = "#004d65", color = "#d8d8d8", alpha = 0.9) +
+  labs(
+    title = "Over half the company did not volunteer at all",
+    x = "\nTotal Activities",
+    y = "Number of Employees\n"
+  ) +
+  scale_x_continuous(breaks = seq(0, max(for_plot$total_activities), by = 1)
+  ) +
+  theme_fivethirtyeight()+
+  theme(
+    axis.title.x = element_text(size = 12),
+    axis.title.y = element_text(size = 12)
+  )
+```
 
 ## Summary by Department {#teams-summary}
 This table breaks these activities down by type and department. Not too much to dig into here yet — it's mostly nice for reference or for informing things like annual reporting.
@@ -639,7 +666,7 @@ max_y <- ggplot_build(p)$data[[1]] %>%
 ggplot(results_df, aes(x = permuted_diffs)) +
   geom_histogram(binwidth = 0.02, fill = "#004d65", boundary = 0) +
   geom_vline(xintercept = observed_diff, color = "#e25b5b", size = 1) +
-  annotate("text", x = observed_diff-.2, y = max_y-5,
+  annotate("text", x = observed_diff+.25, y = max_y-5,
            label = paste0("Observed difference:\n", round(observed_diff, 2)), size=4, color = "#e25b5b", fontface = "bold") +
   labs(
     title = "Finance v Accounting",
@@ -650,7 +677,8 @@ ggplot(results_df, aes(x = permuted_diffs)) +
 
 ```
 
-## Individual Volunteers
+## Leaderboards
+### Individuals
 
 For a true across-the-business leaderboard, let's look at the overall top 20 by raw number of volunteer activities: 
 
@@ -667,7 +695,7 @@ all_plot <- ggplot(top_engagers_all, aes(x = reorder(full_name, engaged), y = en
   geom_bar(stat = "identity", show.legend = T) +
   coord_flip() +
   scale_x_reordered() +
-  scale_y_continuous(breaks = seq(0, max(top_engagers_all$engaged), by = 10)) +
+  scale_y_continuous(breaks = seq(0, max(top_engagers_all$engaged), by = 2)) +
   scale_fill_manual(values = deidentified_color_pal)+
   labs(
     title = "Superhero Volunteers",
@@ -685,6 +713,7 @@ all_plot
 
 ```
 
+### Departments
 We can also break activity down by individuals across departments.
 
 ```{r, echo=FALSE, fig.align="center", out.width="100%"}
@@ -702,7 +731,7 @@ final_plot <- ggplot(top_engagers, aes(x = full_name, y = engaged, fill = org_gr
   facet_wrap(~ org_group, scales = "free_y", ncol = 2, nrow = 4) +
   coord_flip() +  
   scale_x_reordered() +
-  scale_y_continuous(breaks = seq(0, max(top_engagers$engaged), by = 10)) +
+  scale_y_continuous(breaks = seq(0, max(top_engagers$engaged), by = 2)) +
   scale_fill_manual(values = deidentified_color_pal)+
   labs(
     title = "Top 5 Highest-Engaged per Department",
@@ -713,89 +742,125 @@ final_plot
 
 ```
 
-And look at what types of volunteering are most popular for each department. 
+## Volunteering by Type and Department
+
+And we can look at what types of volunteering are most popular for each department with these handy radar charts.
+
+Each point represents how many volunteer activities employees in a department have logged across the eight different activity types. The Sales department, for instance, have logged 26 Community Cleanup activities — the most of any activity for a single department — so their point for that activity is all the way out at the maximum line of 26.
 
 ```{r}
-library(ggradar)
-library(patchwork)  # For arranging plots
-
 activity_labels <- c(
   "community_cleanup" = "Community Cleanup",
   "mentorship_program" = "Mentorship Program",
-  "nonprofit_fundraising" = "Nonprofit Fundraising",
+  "nonprofit_fundraising" = "501c3 Fundraising",
   "stem_workshops" = "STEM Workshops",
-  "food_bank_support" = "Food Bank Support",
+  "food_bank_support" = "Food Banks",
   "disaster_relief" = "Disaster Relief",
-  "animal_shelter" = "Animal Shelter",
-  "environmental_advocacy" = "Environmental Advocacy"
+  "animal_shelter" = "Animal Shelters",
+  "environmental_advocacy" = "Env Advocacy"
 )
-
-global_max <- df_deidentified %>%
-  filter(is_activity == TRUE) %>%
-  count(activity_type) %>%
-  summarise(max_engagement = max(n, na.rm = TRUE)) %>%
-  pull(max_engagement)
 
 create_radar_chart <- function(department_name, data) {
   df_filtered <- data %>%
     filter(is_activity == TRUE, org_group == department_name) %>%
     group_by(activity_type) %>%
-    summarise(engagement_count = n(), .groups = 'drop') %>%
-    mutate(activity_type = recode(activity_type, !!!activity_labels)) 
-
-  # Check if department has engagement data
+    summarise(activity_count = n(), .groups = 'drop') %>%
+    mutate(activity_type = recode(activity_type, !!!activity_labels))  # Apply shortened labels
+  
+  # Check if department has activity data
   if (nrow(df_filtered) == 0) {
-    print(paste("No engagement data for", department_name))
+    print(paste("No activity data for", department_name))
     return(NULL)  # Skip if no data
   }
-
-  # Normalize engagement counts using the **global max across all departments**
-  df_normalized <- df_filtered %>%
-    mutate(engagement_count = engagement_count / global_max) %>%
-    pivot_wider(names_from = activity_type, values_from = engagement_count, values_fill = 0)
-
+  
+  # Reshape data to wide format for ggradar
+  df_wide <- df_filtered %>%
+    pivot_wider(names_from = activity_type, values_from = activity_count, values_fill = 0)
+  
   # Add an identifier column for ggradar
-  df_radar <- df_normalized %>%
+  df_radar <- df_wide %>%
     mutate(org_group = department_name) %>%
     select(org_group, everything())
-
+  
   # Assign department color
   color <- deidentified_color_pal[department_name]
-
+  
+  max_activity_count <- df_deidentified %>%
+    filter(is_activity == TRUE) %>%
+    group_by(org_group, activity_type) %>%
+    summarise(activity_count = n(), .groups = 'drop') %>%
+    summarise(max_value = max(activity_count, na.rm = TRUE)) %>%
+    pull(max_value)
+  max_activity_str <- as.character(max_activity_count)
+  
+  grid.max <- max_activity_count
+  grid.min <- 0
+  centre.y <- grid.min - ((1/9) * (grid.max - grid.min))
+  
   # Create radar chart
   ggradar(df_radar, 
-          grid.min = 0, grid.mid = 0.5, grid.max = 1, 
-          values.radar = c("0", "0.5", "1"),
-          axis.labels = colnames(df_radar)[-1],
-          plot.title = department_name,
+          font.radar = "sans",
+          grid.min = 0,
+          grid.mid = round(max_activity_count / 2),
+          grid.max = max_activity_count,
+          values.radar = c("", as.character(round(max_activity_count / 2)), max_activity_str),
+          gridline.mid.colour = "#6495a9",
+          gridline.max.colour = "#004d65",
+          grid.label.size = 6,
+          axis.label.offset = 1.2,
+          gridline.label.offset = -0.3 * (grid.max - centre.y),
+          axis.labels = str_wrap(colnames(df_radar)[-1]),
+          plot.title = "",
           group.colours = color,
-          axis.label.size = 5,
+          axis.label.size = 4,
           group.point.size = 3,
           fill = T,
-          fill.alpha = .5)+
-        theme(plot.margin = margin(10, 20, 10, 20))  
+          fill.alpha = .5) +
+    theme(plot.margin = margin(30, 30, 30, 30)) +
+    coord_cartesian(clip = "off")
 }
 
 # Example usage (replace "Marketing" with the desired department)
 radar_marketing <- create_radar_chart("Marketing", df_deidentified)
-radar_data <- create_radar_chart("Data", df_deidentified)
 radar_sales <- create_radar_chart("Sales", df_deidentified)
+radar_data <- create_radar_chart("Data", df_deidentified)
+radar_engineering <- create_radar_chart("Engineering", df_deidentified)
 radar_accounting <- create_radar_chart("Accounting", df_deidentified)
-
-
-```
-
-```{r}
-radar_data + radar_marketing
+radar_finance <- create_radar_chart("Finance", df_deidentified)
 
 ```
 
-```{r}
-radar_sales + radar_accounting
+### Sales
+```{r, echo=FALSE, fig.align="center", out.width="100%"}
+radar_sales
 ```
 
+### Marketing
+```{r, echo=FALSE, fig.align="center", out.width="100%"}
+radar_marketing
+```
 
-## Departmental Volunteering 
+### Data
+```{r, echo=FALSE, fig.align="center", out.width="100%"}
+radar_data
+```
+
+### Engineering
+```{r, echo=FALSE, fig.align="center", out.width="100%"}
+radar_engineering
+```
+
+### Accounting
+```{r, echo=FALSE, fig.align="center", out.width="100%"}
+radar_accounting
+```
+
+### Finance
+```{r, echo=FALSE, fig.align="center", out.width="100%"}
+radar_finance
+```
+
+## Departmental Volunteering % 
 Another way to look at the activity across departments is by breaking down the percentage of employees in each department who either participated in at least one activity versus those who did not participate at all.
 
 ```{r, echo=F}
@@ -901,33 +966,6 @@ final_plot
 
 ```
 
-## Overall Distribution
-
-A flip side of the activity coin is looking at employees who did not volunteer in any way.
-
-```{r, fig.align="center", out.width="100%", fig.height=5, fig.width=8}
-for_plot <- df_deidentified %>%
-  group_by(salesforce_id, first_name, last_name) %>% 
-  summarize(
-    total_activities = sum(is_activity, na.rm = TRUE), # Count activities (TRUE as 1)
-    .groups = "drop"
-  )
-
-ggplot(for_plot, aes(x = total_activities)) +
-  geom_histogram(binwidth = 1, fill = "#004d65", color = "#d8d8d8", alpha = 0.9) +
-  labs(
-    title = "Over half the company\ndid not volunteer at all",
-    x = "\nActivities",
-    y = "Number of Employees\n"
-  ) +
-  scale_x_continuous(breaks = seq(0, max(for_plot$total_activities), by = 1)
-  ) +
-  theme_fivethirtyeight()+
-  theme(
-    axis.title.x = element_text(size = 12),
-    axis.title.y = element_text(size = 12)
-  )
-```
 
 ## Activity by Seniority
 I was also curious if the seniority was associated with different levels of overall volunteerism. However, there don't appear to be notable differences in the volunteer rates among the different types of employees.
@@ -1033,8 +1071,7 @@ final_plot
 
 ```
 
-## Who's Not Showing Up?
-### The Non-Participants
+## The Non-Participants
 You can explore the specific people within these non-participating employees in the [Activity by Department](#team-activity) section.
 
 ```{r, echo=F,  fig.align="center", out.width="100%"}
@@ -1067,65 +1104,7 @@ ggplot(for_plot, aes(x = reorder(org_group, count, FUN="sum", decreasing=T), y =
 
 ```
 
-## Top Interns
-```{r}
-top_prospects <- df_deidentified %>%
-  filter(org_status=="Intern") %>% 
-  mutate(
-    full_name = paste(first_name, last_name),
-    # original
-    # activity_details = coalesce(activity_title, activity_desc) %>%
-    #   str_trim()  
-    activity_details = "Details redacted"
-  ) %>%
-  select(salesforce_id, full_name, org_group, activity_type, is_activity, activity_details)
-
-num_prospects <- n_distinct(top_prospects$salesforce_id)
-
-num_engaged_prospects <- top_prospects %>%
-  filter(is_activity == TRUE) %>%
-  summarise(num_engaged = n_distinct(salesforce_id)) %>%
-  pull(num_engaged)
-
-num_activities <- top_prospects %>%
-  filter(is_activity == TRUE) %>%
-  summarize(n = n()) %>%
-  pull(n)
-```
-
-There were **`r num_prospects`** interns, **`r num_engaged_prospects`** of which participated in **`r num_activities`** activities.
-
-```{r}
-pretty_table <- top_prospects %>%
-  filter(is_activity==T) %>% 
-  select(-is_activity, -salesforce_id) %>% 
-  arrange(full_name) %>%  # Sort alphabetically by first name
-  gt() %>%
-  # Style column labels
-  cols_label(
-    full_name = "Name",
-    org_group = "Group",
-    activity_type = "Activity Type",
-    activity_details = "Details"
-  ) %>%
-  cols_align(align = "left", columns = everything()) %>%
-  opt_horizontal_padding(scale = 3) %>% 
-  tab_style(
-    style = list(
-      cell_text(weight = "bold")
-    ),
-    locations = cells_column_labels(everything())  
-  ) %>% 
-  # Add a border around the entire table
-  opt_table_outline(style = "solid", width = px(3), color = "#004d65") %>% 
-  opt_horizontal_padding(scale = 3)
-
-pretty_table
-```
-
 # Spatial Analysis
-
-## Activity by State
 
 Interactive map of volunteer activity by employee state. Hover to see totals. 
 ```{r, echo=FALSE, warning=FALSE, message=FALSE}
@@ -1138,8 +1117,14 @@ activity_by_state <- df_deidentified %>%
 
 # Load US state boundaries
 shapefile_path <- here("data", "s_05mr24/s_05mr24.shp")
-states_sf <- st_read(shapefile_path, quiet = T) %>%
-  rename(state_name = NAME)
+sf_use_s2(FALSE)
+states_sf <- st_read(shapefile_path, quiet = TRUE) %>%
+  rename(state_name = NAME) %>%
+  st_make_valid() %>%  # Fix invalid geometries
+  st_transform(5070) %>%  # Reproject to a projected CRS (meters)
+  st_simplify(dTolerance = 10000) %>%  # Simplify in meters (10km)
+  st_transform(4326)  # Convert back to WGS84 for mapping
+
 
 # Merge activity data with state boundaries
 map_data <- left_join(states_sf, activity_by_state, by = "state_name")
@@ -1160,7 +1145,7 @@ pal <- colorBin(palette = selected_colors,
                 bins = bins, 
                 na.color = "transparent")
 
-map_data <- st_transform(map_data, crs = 4326)
+#map_data <- st_transform(map_data, crs = 4326)
 
 leaflet(map_data) %>%
   addProviderTiles(providers$CartoDB.Positron) %>%
@@ -1242,6 +1227,8 @@ activity_by_state %>%
 
 # Timeline Analysis
 ## Annual Timeline
+
+This chart includes a **<span style="color:#00a2db">smoothed average trend line</span>**, calculated using nearby data points to create a locally weighted curve that highlights overall trends while reducing short-term fluctuations.
 ```{r}
 total_activities_validdates <- df_deidentified %>%
   filter(is_activity == T, !is.na(activity_date)) %>% 
@@ -1270,20 +1257,29 @@ for_timeline <- df_deidentified %>%
 
 weekly_avg <- round(mean(for_timeline$count, na.rm = TRUE), 2)
 
+year_breaks <- unique(year(for_timeline$activity_week))
+
 timeline_plot <- ggplot(for_timeline, aes(x = activity_week, y = count)) +
   geom_line(size = 1, color = "#004d65") +
+  geom_smooth(color = "#00a2db", linetype = "dashed", se = F)+
+  geom_text(data = data.frame(activity_week = as.Date(paste0(year_breaks, "-07-01")), 
+                              y = max(for_timeline$count) * 1.1, 
+                              label = year_breaks), 
+            aes(x = activity_week, y = y, label = label), 
+            size = 6, fontface = "bold", color = "grey20") +
+  
   scale_x_date(
     breaks = seq(
       from = floor_date(min(for_timeline$activity_week), "year"),  # Start from the first day of the min year
-      to = ceiling_date(max(for_timeline$activity_week), "year") - months(3),  # End before next year's Q1
-      by = "3 months"
+      to = ceiling_date(max(for_timeline$activity_week), "year") - months(2),  # End before next year's Q1
+      by = "2 months"
     ),
     labels = function(x) format(x, "%b")  # Display month abbreviations (Jan, Apr, Jul, Oct)
   ) +
-  facet_wrap(~year, scales = "free_x", nrow = 1) +
+  scale_y_continuous(breaks = seq(0, max(for_timeline$count, na.rm = TRUE), by = 2)) +
   labs(
     title = "How Does Volunteering Vary\nThroughout the Year?",
-    subtitle = "Counts by week",
+    subtitle = "Counts by week\n",
     x = "Date",
     y = "Activity Count",
     color = "Department"
@@ -1370,7 +1366,7 @@ activities_averages <- activities_with_members %>%
 # Compute the overall quarterly average for reference
 total_activities <- sum(select(activities_with_members, starts_with("Q")) %>% unlist(), na.rm = TRUE)
 total_employees <- sum(total_members$total_members, na.rm = TRUE)
-overall_per_quarter_avg <- round(total_activities / (total_employees * 8), 2)  # 8 quarters total
+overall_per_quarter_avg <- round((total_activities / total_employees)/8,2)  # 8 quarters total
 
 ### 📌 Pretty Table with Year Headers
 pretty_table <- activities_averages %>%
@@ -1445,7 +1441,11 @@ reference_table <- overall_avg_table %>%
 reference_table
 ```
 
-This gives us a reference point to assess the per-employee activity rate for each group across 2024. The data are normalized to allow comparison across groups of different sizes. The table cells below are color-coded in reference to the overall Acme Corp quarterly average: **darker greens are farther above the overall average, darker purples are farther below, and the whiteish-yellows are nearly identical.** 
+This gives us a reference point to assess the per-employee activity rate for each group across 2024. The data are normalized to allow comparison across groups of different sizes. The table cells below are color-coded in reference to the overall Acme Corp quarterly average: **darker greens are farther above the overall average, darker purples are farther below, and the whites are nearly identical.** 
+
+<p align="center">
+<img src="media/acme_corp_avg_spectrum.png" width="400">
+</p>
 
 This table provides two main benefits: 
 
@@ -1455,7 +1455,7 @@ This table provides two main benefits:
 pretty_table
 ```
 
-# Activity by Department {#team-activity}
+# Individual Activity Breakdown {#team-activity}
 A visual breakdown of activity counts by department, with each employee colored according to their investment level. All charts are set to the same x-axis to allow for easy comparison across departments.
 
 Remember that you can refer back to the [Summary by Department](#teams-summary) section to see the per-department breakdown of total employees, activity types, and total activities.
@@ -1481,6 +1481,7 @@ team_activity_plot <- function(df, team = NULL, member_status = NULL, invest_col
   
   # Summarize data for plotting
   top_engagers_all <- filtered_data %>%
+    mutate(seniority_level = factor(seniority_level, levels = c("Executive", "Management", "Contributor"))) %>% 
     group_by(salesforce_id, first_name, last_name, seniority_level) %>%
     summarize(engaged = sum(is_activity), .groups = "drop") %>%
     ungroup() %>%
@@ -1505,11 +1506,11 @@ team_activity_plot <- function(df, team = NULL, member_status = NULL, invest_col
     coord_flip() +  
     scale_y_continuous(
       limits = c(0, global_max_engaged), 
-      breaks = seq(0, global_max_engaged, by = 5)
+      breaks = seq(0, global_max_engaged, by = 2)
     ) +
     scale_fill_manual(values = invest_color_pal) +
     labs(
-      title = paste("Count of activities"),
+      title = paste("Count of Activities"),
       x = "",
       y = "",
       fill = "Seniority Level",
@@ -1598,19 +1599,6 @@ team_activity_plot(
 
 ```
 
-## Interns
-All the prospective employees are linked to specific groups and are shown in their respective group charts above, but I also wanted to break them out as their own group in case that's helpful. 
-```{r, fig.height=8, fig.width=8}
-team_activity_plot(
-  df = df_deidentified,
-  team = NULL,
-  member_status = "Intern",
-  invest_color_pal = de_id_invest_color_pal,
-  global_max_engaged = global_max_engaged
-)
-
-```
-
 # Interactive Search
 
 This is an interactive table of the data that underlies everything in this report. A few key points to note: 
@@ -1673,8 +1661,8 @@ datatable(
 <hr style="border: 1px solid #004d65;">
 # Recommendations
 
-**[Note]**: for this demonstration I've stripped out the recommendations section as it doesn't make a whole lot of sense to make up a bunch of writing about a bunch of made-up data!
-But in the real versions of this general type of report this section has included a detailed list of recommendations for improving program buy-in and efficacy based on the analysis above. 
+**[Note]**: for this demonstration I've stripped out this recommendations section as it doesn't make a whole lot of sense to write up a set of made-up recommendations for a bunch of made-up data!
+But in the real versions of this general type of report this section has included a detailed list of recommendations for improving program buy-in and efficacy based on the analysis above and my knowledge of the client's business. 
 
 
 

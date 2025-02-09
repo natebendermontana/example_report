@@ -29,9 +29,9 @@ deidentified_color_pal <- c(
 )
 
 de_id_invest_color_pal = c(
-  "Executive" = "#e25b5b",
+  "Executive" = "#de9802",
   "Management" = "#378a70",
-  "Contributor" = "#004d65"
+  "Contributor" = "#046989"
 )
 
 de_id_redgreen_gradient <- col_numeric(
